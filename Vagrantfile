@@ -18,6 +18,11 @@ def get_setting(settings, key, default_value)
 end
 
 Vagrant.configure("2") do |config|
+
+  config.ssh.forward_agent = true
+  config.ssh.connect_timeout = 60
+  config.ssh.keep_alive = true
+  config.ssh.compression = false
   
   # 설정값 로드
   root_password = get_setting(settings, 'ROOT_PASSWORD', 'owncloud123!')
@@ -55,18 +60,28 @@ Vagrant.configure("2") do |config|
       vmware.vmx["virtualhw.version"] = "19"
       vmware.vmx["virtualHW.productCompatibility"] = "hosted"
       vmware.vmx["tools.syncTime"] = "TRUE"
+
+      vmware.vmx["ethernet0.virtualDev"] = "e1000"
+      vmware.vmx["isolation.tools.setOption.disable"] = "FALSE"
+      vmware.vmx["isolation.tools.getPtrLocation.disable"] = "FALSE"
     end
     
     master.vm.hostname = "k8s-master"
     master.vm.synced_folder ".", "/vagrant", disabled: true
     master.vm.network "private_network", ip: k8s_master_ip, netmask: "255.255.255.0"
     
-    # SSH 키 복사를 위한 설정
-    master.vm.synced_folder ".", "/home/vagrant/shared", create: true, owner: "vagrant", group: "vagrant"
-    
+    # ssh 안정화
+    master.vm.provision "shell", inline: "systemctl restart sshd && sleep 3"
+
+    # 스크립트 실행
     master.vm.provision "shell", path: "scripts/common_script.sh", env: common_env
     master.vm.provision "shell", path: "scripts/k8s_node_script.sh", env: common_env
     master.vm.provision "shell", path: "scripts/master.sh", env: common_env
+    master.vm.provision "shell", inline: <<-SHELL
+      echo "=== 기본 패키지 설치 (인라인) ==="
+      dnf install -y epel-release vim wget curl git net-tools nano
+      echo "패키지 설치 완료"
+    SHELL
     
   end
   
@@ -85,6 +100,11 @@ Vagrant.configure("2") do |config|
         vmware.vmx["virtualhw.version"] = "19"
         vmware.vmx["virtualHW.productCompatibility"] = "hosted"
         vmware.vmx["tools.syncTime"] = "TRUE"
+
+        vmware.vmx["ethernet0.virtualDev"] = "e1000"
+        vmware.vmx["isolation.tools.setOption.disable"] = "FALSE"
+        vmware.vmx["isolation.tools.getPtrLocation.disable"] = "FALSE"
+
       end
       
       worker.vm.hostname = "k8s-worker#{i}"
@@ -99,9 +119,18 @@ Vagrant.configure("2") do |config|
         'WORKER_NUM' => i.to_s
       })
       
+      # ssh 안정화
+      worker.vm.provision "shell", inline: "systemctl restart sshd && sleep 3"
+
+      # 스크립트 실행
       worker.vm.provision "shell", path: "scripts/common_script.sh", env: worker_env
       worker.vm.provision "shell", path: "scripts/k8s_node_script.sh", env: worker_env
       worker.vm.provision "shell", path: "scripts/worker.sh", env: worker_env
+      worker.vm.provision "shell", inline: <<-SHELL
+        echo "=== 기본 패키지 설치 (인라인) ==="
+        dnf install -y epel-release vim wget curl git net-tools nano
+        echo "패키지 설치 완료"
+      SHELL
     end
   end
 end
