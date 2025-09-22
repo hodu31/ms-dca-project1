@@ -26,6 +26,13 @@ Host k8s-worker*
     LogLevel ERROR
 EOF
 
+
+# Git 저장소 클론
+echo "== Git 저장소 클론 =="
+cd /root 
+git clone https://github.com/hodu31/ms-dca-project1.git
+
+
 chmod 600 /root/.ssh/config
 
 echo "Master 노드 설정이 완료되었습니다."

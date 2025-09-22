@@ -99,9 +99,9 @@ Vagrant.configure("2") do |config|
         'WORKER_NUM' => i.to_s
       })
       
-      worker.vm.provision "shell", path: "scripts/common_script.sh", env: common_env
-      worker.vm.provision "shell", path: "scripts/k8s_node_script.sh", env: common_env
-      worker.vm.provision "shell", path: "scripts/worker.sh", env: common_env
+      worker.vm.provision "shell", path: "scripts/common_script.sh", env: worker_env
+      worker.vm.provision "shell", path: "scripts/k8s_node_script.sh", env: worker_env
+      worker.vm.provision "shell", path: "scripts/worker.sh", env: worker_env
     end
   end
 end
