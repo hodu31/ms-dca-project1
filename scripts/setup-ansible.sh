@@ -136,9 +136,6 @@ setup_ansible() {
         return 1
     fi
     
-    # SSH 키 설정
-    setup_ssh_keys
-    
     # 환경변수를 bashrc에 추가
     if ! grep -q "ANSIBLE_CONFIG" ~/.bashrc; then
         echo "export ANSIBLE_CONFIG=$SAFE_CFG" >> ~/.bashrc
