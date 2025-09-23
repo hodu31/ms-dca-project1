@@ -1,0 +1,75 @@
+---
+- name: 컨테이너 런타임 확인 및 Kubernetes 노드 재시작
+  hosts: all
+  become: true
+  
+  tasks:
+    - name: 컨테이너 런타임 확인
+      shell: |
+        if systemctl list-unit-files | grep -q containerd; then
+          echo "containerd"
+        elif systemctl list-unit-files | grep -q docker; then
+          echo "docker"
+        else
+          echo "unknown"
+        fi
+      register: container_runtime
+
+    - name: 런타임 정보 출력
+      debug:
+        msg: "{{ inventory_hostname }} uses: {{ container_runtime.stdout }}"
+
+    - name: Containerd 서비스 시작 (containerd 사용 시)
+      systemd:
+        name: containerd
+        state: started
+        enabled: yes
+      when: container_runtime.stdout == "containerd"
+
+    - name: kubelet 서비스 시작
+      systemd:
+        name: kubelet
+        state: started
+        enabled: yes
+
+    - name: 서비스 상태 확인
+      shell: |
+        echo "=== {{ inventory_hostname }} 서비스 상태 ==="
+        systemctl is-active kubelet
+        if [ -f /etc/systemd/system/containerd.service ]; then
+          systemctl is-active containerd
+        elif [ -f /etc/systemd/system/docker.service ]; then
+          systemctl is-active docker
+        fi
+      register: service_status
+
+    - name: 상태 출력
+      debug:
+        msg: "{{ service_status.stdout_lines }}"
+
+- name: Master 노드에서 클러스터 상태 확인
+  hosts: masters
+  become: true
+  
+  tasks:
+    - name: API 서버 준비 대기
+      wait_for:
+        port: 6443
+        host: localhost
+        delay: 10
+        timeout: 300
+
+    - name: 모든 노드 상태 확인
+      shell: kubectl get nodes
+      register: all_nodes
+      environment:
+        KUBECONFIG: /root/.kube/config
+      retries: 10
+      delay: 10
+      until: all_nodes.rc == 0
+
+    - name: 노드 상태 출력
+      debug:
+        msg:
+          - "=== 클러스터 노드 상태 ==="
+          - "{{ all_nodes.stdout_lines }}"

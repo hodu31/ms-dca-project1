@@ -1,6 +1,6 @@
 ---
 - name: Docker 설치 및 설정 (모든 노드)
-  hosts: all  # masters가 아닌 all로 변경
+  hosts: all 
   become: true
   
   tasks:
