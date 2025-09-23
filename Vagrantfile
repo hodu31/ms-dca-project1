@@ -28,9 +28,9 @@ Vagrant.configure("2") do |config|
   root_password = get_setting(settings, 'ROOT_PASSWORD', 'owncloud123!')
   vagrant_password = get_setting(settings, 'VAGRANT_PASSWORD', 'vagrant123')
   
-  network_subnet = get_setting(settings, 'NETWORK_SUBNET', '192.168.56')
-  k8s_master_ip = get_setting(settings, 'K8S_MASTER_IP', '192.168.56.30')
-  k8s_worker_start_ip = get_setting(settings, 'K8S_WORKER_START_IP', '31')
+  network_subnet = get_setting(settings, 'NETWORK_SUBNET', '192.168.100')
+  k8s_master_ip = get_setting(settings, 'K8S_MASTER_IP', '192.168.100.20')
+  k8s_worker_start_ip = get_setting(settings, 'K8S_WORKER_START_IP', '30')
   
   k8s_master_memory = get_setting(settings, 'K8S_MASTER_MEMORY', 3072).to_i
   k8s_worker_memory = get_setting(settings, 'K8S_WORKER_MEMORY', 2048).to_i

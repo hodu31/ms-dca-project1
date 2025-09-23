@@ -1,0 +1,153 @@
+---
+- name: Kubernetes 클러스터 구축
+  hosts: kubernetes
+  become: true
+  
+  tasks:
+    # 공통 설정
+    - name: Kubernetes 저장소 추가
+      yum_repository:
+        name: kubernetes
+        description: Kubernetes Repository
+        baseurl: https://pkgs.k8s.io/core:/stable:/v1.28/rpm/
+        gpgcheck: true
+        gpgkey: https://pkgs.k8s.io/core:/stable:/v1.28/rpm/repodata/repomd.xml.key
+        exclude: kubelet kubeadm kubectl cri-tools kubernetes-cni
+
+    - name: Kubernetes 패키지 설치
+      dnf:
+        name:
+          - "kubelet-{{ k8s_version }}"
+          - "kubeadm-{{ k8s_version }}"
+          - "kubectl-{{ k8s_version }}"
+        state: present
+        disable_excludes: kubernetes
+
+    - name: kubelet 서비스 활성화
+      systemd:
+        name: kubelet
+        enabled: true
+
+    - name: containerd 설정
+      shell: |
+        containerd config default > /etc/containerd/config.toml
+        sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+      notify: restart containerd
+
+    - name: containerd 재시작
+      systemd:
+        name: containerd
+        state: restarted
+
+# 마스터 노드 초기화
+- name: Kubernetes 마스터 초기화
+  hosts: masters
+  become: true
+  
+  tasks:
+    - name: 기존 클러스터 설정 확인
+      stat:
+        path: /etc/kubernetes/admin.conf
+      register: k8s_config
+
+    - name: kubeadm init 실행
+      shell: |
+        kubeadm init \
+          --pod-network-cidr={{ pod_network_cidr }} \
+          --service-cidr={{ service_cidr }} \
+          --apiserver-advertise-address=192.168.100.20 \
+          --control-plane-endpoint=192.168.100.20
+      when: not k8s_config.stat.exists
+
+    - name: kubectl 설정 디렉토리 생성
+      file:
+        path: /root/.kube
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: kubectl 설정 파일 복사
+      copy:
+        src: /etc/kubernetes/admin.conf
+        dest: /root/.kube/config
+        owner: root
+        group: root
+        mode: '0644'
+        remote_src: true
+
+    - name: Calico CNI 설치
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/projectcalico/calico/v{{ calico_version }}/manifests/calico.yaml
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: 마스터 노드 taint 제거 (단일 노드 테스트용)
+      shell: |
+        kubectl taint nodes k8s-master node-role.kubernetes.io/control-plane- || true
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: 워커 노드 조인 토큰 생성
+      shell: kubeadm token create --print-join-command
+      register: join_command_result
+
+    - name: 조인 명령어 저장
+      set_fact:
+        join_command: "{{ join_command_result.stdout }}"
+
+# 워커 노드 조인
+- name: 워커 노드를 클러스터에 조인
+  hosts: workers
+  become: true
+  
+  tasks:
+    - name: 기존 워커 노드 설정 확인
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: worker_config
+
+    - name: 워커 노드 클러스터 조인
+      shell: "{{ hostvars['k8s-master']['join_command'] }}"
+      when: not worker_config.stat.exists
+
+# 클러스터 상태 확인
+- name: 클러스터 상태 확인
+  hosts: masters
+  become: true
+  
+  tasks:
+    - name: 노드 준비 상태 대기
+      shell: kubectl get nodes --no-headers | grep Ready | wc -l
+      register: ready_nodes
+      until: ready_nodes.stdout|int >= 3
+      retries: 30
+      delay: 10
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: 노드 상태 확인
+      shell: kubectl get nodes
+      register: nodes_status
+      environment:
+        KUBECONFIG: /root/.kube/config
+      
+    - name: 노드 상태 출력
+      debug:
+        msg: "{{ nodes_status.stdout_lines }}"
+
+    - name: 클러스터 정보 확인
+      shell: kubectl cluster-info
+      register: cluster_info
+      environment:
+        KUBECONFIG: /root/.kube/config
+      
+    - name: 클러스터 정보 출력
+      debug:
+        msg: "{{ cluster_info.stdout_lines }}"
+
+  handlers:
+    - name: restart containerd
+      systemd:
+        name: containerd
+        state: restarted
