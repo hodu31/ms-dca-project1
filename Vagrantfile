@@ -67,7 +67,7 @@ Vagrant.configure("2") do |config|
     end
     
     master.vm.hostname = "k8s-master"
-    master.vm.synced_folder ".", "/vagrant", disabled: true
+    master.vm.synced_folder ".", "/vagrant", disabled: false
     master.vm.network "private_network", ip: k8s_master_ip, netmask: "255.255.255.0"
     
     # ssh 안정화
@@ -108,7 +108,7 @@ Vagrant.configure("2") do |config|
       end
       
       worker.vm.hostname = "k8s-worker#{i}"
-      worker.vm.synced_folder ".", "/vagrant", disabled: true
+      worker.vm.synced_folder ".", "/vagrant", disabled: false
       
       worker_ip = "#{network_subnet}.#{k8s_worker_start_ip.to_i + i - 1}"
       worker.vm.network "private_network", ip: worker_ip, netmask: "255.255.255.0"
