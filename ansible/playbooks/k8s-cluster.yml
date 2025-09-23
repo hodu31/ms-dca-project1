@@ -1,6 +1,6 @@
 ---
 - name: Kubernetes 클러스터 구축
-  hosts: kubernetes
+  hosts: all
   become: true
   
   tasks:
@@ -38,6 +38,13 @@
       systemd:
         name: containerd
         state: restarted
+
+  handlers:
+    - name: restart containerd
+      systemd:
+        name: containerd
+        state: restarted
+        daemon_reload: true
 
 # 마스터 노드 초기화
 - name: Kubernetes 마스터 초기화
@@ -145,9 +152,3 @@
     - name: 클러스터 정보 출력
       debug:
         msg: "{{ cluster_info.stdout_lines }}"
-
-  handlers:
-    - name: restart containerd
-      systemd:
-        name: containerd
-        state: restarted

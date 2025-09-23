@@ -359,11 +359,23 @@ run_playbook() {
     
     log_info "플레이북 실행: $playbook_name"
     
-    # ansible-playbook 실행
-    ansible-playbook \
-        -i "$SAFE_INVENTORY" \
-        "$playbook_path" \
-        --extra-vars "ansible_password=owncloud123!"
+    # k8s-cluster 플레이북인 경우 변수 추가
+    if [[ "$playbook_name" == "k8s-cluster" ]]; then
+        ansible-playbook \
+            -i "$SAFE_INVENTORY" \
+            "$playbook_path" \
+            --extra-vars "ansible_password=owncloud123!" \
+            --extra-vars "k8s_version=1.28.0" \
+            --extra-vars "pod_network_cidr=10.244.0.0/16" \
+            --extra-vars "service_cidr=10.96.0.0/12" \
+            --extra-vars "calico_version=3.26.1"
+    else
+        # 일반 플레이북 실행
+        ansible-playbook \
+            -i "$SAFE_INVENTORY" \
+            "$playbook_path" \
+            --extra-vars "ansible_password=owncloud123!"
+    fi
 }
 
 # 모든 플레이북 실행
