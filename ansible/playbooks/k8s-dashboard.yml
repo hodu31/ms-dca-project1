@@ -1,0 +1,73 @@
+---
+- name: Kubernetes Dashboard 설치 및 설정
+  hosts: masters
+  become: true
+  
+  tasks:
+    - name: Dashboard 설치
+      shell: |
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/dashboard/v2.7.0/aio/deploy/recommended.yaml
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: Dashboard 서비스 확인
+      shell: kubectl get svc -n kubernetes-dashboard
+      register: dashboard_svc
+      environment:
+        KUBECONFIG: /root/.kube/config
+    
+    - name: Dashboard 서비스 상태 출력
+      debug:
+        msg: "{{ dashboard_svc.stdout_lines }}"
+
+    - name: admin-user 서비스 계정 생성
+      shell: |
+        cat <<EOF | kubectl apply -f -
+        apiVersion: v1
+        kind: ServiceAccount
+        metadata:
+          name: admin-user
+          namespace: kubernetes-dashboard
+        ---
+        apiVersion: rbac.authorization.k8s.io/v1
+        kind: ClusterRoleBinding
+        metadata:
+          name: admin-user
+        roleRef:
+          apiGroup: rbac.authorization.k8s.io
+          kind: ClusterRole
+          name: cluster-admin
+        subjects:
+        - kind: ServiceAccount
+          name: admin-user
+          namespace: kubernetes-dashboard
+        EOF
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: 토큰 생성
+      shell: |
+        kubectl -n kubernetes-dashboard create token admin-user
+      register: dashboard_token
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: 토큰 저장
+      copy:
+        content: "{{ dashboard_token.stdout }}"
+        dest: /root/dashboard-token.txt
+        mode: '0600'
+
+    - name: 접속 정보 출력
+      debug:
+        msg: 
+          - "Dashboard가 설치되었습니다!"
+          - "토큰이 /root/dashboard-token.txt에 저장되었습니다"
+          - "접속하려면 kubectl proxy를 실행하세요"
+
+    - name: NodePort로 서비스 타입 변경 (외부 접속용)
+      shell: |
+        kubectl patch svc kubernetes-dashboard -n kubernetes-dashboard -p '{"spec":{"type":"NodePort","ports":[{"port":443,"targetPort":8443,"nodePort":30443}]}}'
+      environment:
+        KUBECONFIG: /root/.kube/config
+      ignore_errors: true
