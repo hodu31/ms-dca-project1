@@ -35,6 +35,15 @@
         content: |
           prometheus:
             prometheusSpec:
+              # 리소스 설정 추가 ⭐
+              resources:
+                requests:
+                  memory: 500Mi
+                  cpu: 300m
+                limits:
+                  memory: 800Mi
+                  cpu: 500m
+              retention: 7d  # 데이터 보관 기간
               storageSpec:
                 volumeClaimTemplate:
                   spec:
@@ -46,6 +55,14 @@
           
           alertmanager:
             alertmanagerSpec:
+              # 리소스 설정 추가 ⭐
+              resources:
+                requests:
+                  memory: 200Mi
+                  cpu: 100m
+                limits:
+                  memory: 500Mi
+                  cpu: 200m
               storage:
                 volumeClaimTemplate:
                   spec:
@@ -56,6 +73,14 @@
                         storage: 5Gi
           
           grafana:
+            # 리소스 설정 추가 ⭐
+            resources:
+              requests:
+                memory: 200Mi
+                cpu: 100m
+              limits:
+                memory: 500Mi
+                cpu: 200m
             persistence:
               enabled: true
               storageClassName: nfs-client
@@ -64,6 +89,16 @@
             service:
               type: NodePort
               nodePort: 30080
+          
+          # Operator 리소스 설정 추가 ⭐
+          prometheusOperator:
+            resources:
+              requests:
+                memory: 200Mi
+                cpu: 100m
+              limits:
+                memory: 500Mi
+                cpu: 200m
 
     - name: 모니터링 스택 설치
       shell: |

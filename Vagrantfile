@@ -32,8 +32,8 @@ Vagrant.configure("2") do |config|
   k8s_master_ip = get_setting(settings, 'K8S_MASTER_IP', '192.168.100.20')
   k8s_worker_start_ip = get_setting(settings, 'K8S_WORKER_START_IP', '30')
   
-  k8s_master_memory = get_setting(settings, 'K8S_MASTER_MEMORY', 3072).to_i
-  k8s_worker_memory = get_setting(settings, 'K8S_WORKER_MEMORY', 2048).to_i
+  k8s_master_memory = get_setting(settings, 'K8S_MASTER_MEMORY', 4096).to_i
+  k8s_worker_memory = get_setting(settings, 'K8S_WORKER_MEMORY', 3072).to_i
   worker_count = get_setting(settings, 'K8S_WORKER_COUNT', 2).to_i
 
   # 공통 환경변수 설정
@@ -52,7 +52,7 @@ Vagrant.configure("2") do |config|
     master.vm.provider "vmware_desktop" do |vmware|
       vmware.gui = false
       vmware.memory = k8s_master_memory
-      vmware.cpus = 2
+      vmware.cpus = 3
       vmware.vmx["displayName"] = "k8s-master"
       vmware.linked_clone = false
       
@@ -92,7 +92,7 @@ Vagrant.configure("2") do |config|
       worker.vm.provider "vmware_desktop" do |vmware|
         vmware.gui = false
         vmware.memory = k8s_worker_memory
-        vmware.cpus = 2
+        vmware.cpus = 3
         vmware.vmx["displayName"] = "k8s-worker#{i}"
         vmware.linked_clone = false
         
