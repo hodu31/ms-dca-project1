@@ -138,18 +138,20 @@
       command: sysctl --system
       changed_when: false
 
-    - name: Docker 저장소 추가
+    # Docker 저장소 추가
+    - name: Docker 저장소 추가 (CentOS 8 호환성)
       yum_repository:
         name: docker-ce
         description: Docker CE Repository
-        baseurl: https://download.docker.com/linux/centos/$releasever/$basearch/stable
+        baseurl: https://download.docker.com/linux/centos/8/$basearch/stable
         gpgcheck: yes
         gpgkey: https://download.docker.com/linux/centos/gpg
 
     - name: containerd 설치
       dnf:
-        name: containerd.io-1.6.21-3.1.el8
-        state: present
+        name: containerd.io
+        state: latest
+        update_cache: yes
 
     - name: containerd 기본 설정 생성
       shell: containerd config default > /etc/containerd/config.toml
