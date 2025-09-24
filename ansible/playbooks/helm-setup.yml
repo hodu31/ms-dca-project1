@@ -1,0 +1,96 @@
+---
+- name: Helm 기반 모니터링 스택 설치
+  hosts: masters
+  become: true
+  
+  tasks:
+    - name: Helm 설치 확인
+      command: helm version
+      register: helm_check
+      failed_when: false
+      changed_when: false
+
+    - name: Helm 설치
+      shell: curl https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+      when: helm_check.rc != 0
+
+    - name: Helm repo 추가
+      shell: |
+        helm repo add nfs-subdir-external-provisioner https://kubernetes-sigs.github.io/nfs-subdir-external-provisioner/
+        helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+        helm repo update
+
+    - name: NFS Provisioner 설치
+      shell: |
+        helm upgrade --install nfs-provisioner nfs-subdir-external-provisioner/nfs-subdir-external-provisioner \
+          --namespace nfs-provisioner \
+          --create-namespace \
+          --set nfs.server=192.168.100.20 \
+          --set nfs.path=/nfs-share \
+          --set storageClass.defaultClass=true
+
+    - name: 모니터링 values 파일 생성
+      copy:
+        dest: /tmp/monitoring-values.yaml
+        content: |
+          prometheus:
+            prometheusSpec:
+              storageSpec:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: nfs-client
+                    accessModes: ["ReadWriteMany"]
+                    resources:
+                      requests:
+                        storage: 10Gi
+          
+          alertmanager:
+            alertmanagerSpec:
+              storage:
+                volumeClaimTemplate:
+                  spec:
+                    storageClassName: nfs-client
+                    accessModes: ["ReadWriteMany"]
+                    resources:
+                      requests:
+                        storage: 5Gi
+          
+          grafana:
+            persistence:
+              enabled: true
+              storageClassName: nfs-client
+              size: 5Gi
+            adminPassword: admin123
+            service:
+              type: NodePort
+              nodePort: 30080
+
+    - name: 모니터링 스택 설치
+      shell: |
+        helm upgrade --install monitoring prometheus-community/kube-prometheus-stack \
+          --namespace monitoring \
+          --create-namespace \
+          --values /tmp/monitoring-values.yaml
+
+    - name: 설치 확인
+      shell: |
+        echo "=== NFS Provisioner ==="
+        kubectl get all -n nfs-provisioner
+        echo -e "\n=== Storage Class ==="
+        kubectl get storageclass
+        echo -e "\n=== Monitoring Stack ==="
+        kubectl get pods -n monitoring
+      register: install_status
+
+    - name: 설치 상태 출력
+      debug:
+        var: install_status.stdout_lines
+
+    - name: 접속 정보 출력
+      debug:
+        msg:
+          - "=============================="
+          - "모니터링 스택 설치 완료!"
+          - "Grafana: http://{{ ansible_host }}:30080"
+          - "ID: admin / PW: admin123"
+          - "=============================="

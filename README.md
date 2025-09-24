@@ -5,3 +5,5 @@
 2. ./scripts/vagrant-ansible.sh setup          # 초기 설정
 3. ./scripts/vagrant-ansible.sh ping           # 연결 테스트0
 4. ./scripts/vagrant-ansible.sh playbook k8s-cluster   # K8s 구축
+5. ./scripts/vagrant-ansible.sh playbook nfs-setup   # nfs 설정
+6. ./scripts/vagrant-ansible.sh playbook helm-setup    # 기본 그라파나 프로메테우스 provisioner 설치
