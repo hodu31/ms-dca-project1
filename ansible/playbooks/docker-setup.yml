@@ -1,0 +1,106 @@
+---
+- name: Docker 설치 및 설정 (모든 노드)
+  hosts: all 
+  become: true
+  
+  tasks:
+    - name: 기존 Docker 관련 패키지 제거
+      dnf:
+        name:
+          - docker
+          - docker-client
+          - docker-client-latest
+          - docker-common
+          - docker-latest
+          - docker-latest-logrotate
+          - docker-logrotate
+          - docker-engine
+        state: absent
+
+    - name: Docker 저장소 추가
+      yum_repository:
+        name: docker-ce-stable
+        description: Docker CE Stable
+        baseurl: https://download.docker.com/linux/centos/9/$basearch/stable
+        gpgcheck: true
+        gpgkey: https://download.docker.com/linux/centos/gpg
+        enabled: true
+
+    - name: Docker CE 설치
+      dnf:
+        name:
+          - docker-ce
+          - docker-ce-cli
+          - containerd.io
+          - docker-compose-plugin
+        state: present
+
+    - name: Docker 서비스 시작 및 활성화
+      systemd:
+        name: docker
+        state: started
+        enabled: true
+
+    - name: root 사용자를 docker 그룹에 추가
+      user:
+        name: root
+        groups: docker
+        append: true
+
+    - name: Docker 데몬 설정 파일 생성
+      copy:
+        dest: /etc/docker/daemon.json
+        content: |
+          {
+            "exec-opts": ["native.cgroupdriver=systemd"],
+            "log-driver": "json-file",
+            "log-opts": {
+              "max-size": "100m"
+            },
+            "storage-driver": "overlay2",
+            "storage-opts": [
+              "overlay2.override_kernel_check=true"
+            ]
+          }
+        backup: true
+      notify: restart docker
+
+    - name: systemd 데몬 재로드
+      systemd:
+        daemon_reload: true
+
+    - name: Docker 서비스 재시작
+      systemd:
+        name: docker
+        state: restarted
+
+    - name: Docker 설치 확인
+      command: docker --version
+      register: docker_version
+      
+    - name: Docker 버전 출력
+      debug:
+        msg: "{{ inventory_hostname }} - Docker 설치 완료: {{ docker_version.stdout }}"
+
+    - name: Docker Compose 설치 확인
+      command: docker compose version
+      register: compose_version
+      
+    - name: Docker Compose 버전 출력
+      debug:
+        msg: "{{ inventory_hostname }} - Docker Compose 설치 완료: {{ compose_version.stdout }}"
+
+    - name: Hello World 컨테이너로 Docker 작동 테스트
+      docker_container:
+        name: hello-world-test
+        image: hello-world
+        state: started
+        auto_remove: true
+      register: hello_world_test
+      ignore_errors: true
+
+  handlers:
+    - name: restart docker
+      systemd:
+        name: docker
+        state: restarted
