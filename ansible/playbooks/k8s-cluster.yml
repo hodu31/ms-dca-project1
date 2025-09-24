@@ -5,6 +5,11 @@
   
   tasks:
     # 공통 설정
+    - name: containerd 설치
+      dnf:
+        name:
+          - containerd.io
+        state: present
     - name: Kubernetes 저장소 추가
       yum_repository:
         name: kubernetes
