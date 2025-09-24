@@ -78,11 +78,6 @@ EOF
 fix_directory_permissions() {
     log_info "디렉토리 권한 문제를 해결합니다..."
     
-    # /vagrant 디렉토리 전체 권한 설정 추가
-    log_info "/vagrant 디렉토리 권한을 설정합니다..."
-    sudo chmod -R 755 /vagrant
-    log_success "/vagrant 디렉토리 권한이 설정되었습니다."
-    
     # 안전한 ansible 디렉토리 생성
     mkdir -p "$SAFE_ANSIBLE_DIR"
     chmod 755 "$SAFE_ANSIBLE_DIR"
