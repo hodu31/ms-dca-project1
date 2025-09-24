@@ -3,7 +3,7 @@
   hosts: all
   become: true
   vars:
-    k8s_version: "1.27.2-150500.1.1.x86_64"
+    k8s_version: "1.27.2" 
     pod_network_cidr: "20.96.0.0/16"
     master_ip: "192.168.100.20"
     
@@ -183,9 +183,9 @@
     - name: Kubernetes 패키지 설치
       dnf:
         name:
-          - "kubelet-{{ k8s_version }}"
-          - "kubeadm-{{ k8s_version }}"
-          - "kubectl-{{ k8s_version }}"
+          - kubelet-1.27.2
+          - kubeadm-1.27.2
+          - kubectl-1.27.2
         state: present
         disable_excludes: kubernetes
 
@@ -193,6 +193,27 @@
       systemd:
         name: kubelet
         enabled: true
+
+    - name: kubelet 설정 파일 생성
+      copy:
+        dest: /etc/sysconfig/kubelet
+        content: |
+          KUBELET_EXTRA_ARGS="--cgroup-driver=systemd"
+
+    - name: kubelet 재시작
+      systemd:
+        name: kubelet
+        state: restarted
+        daemon_reload: true
+
+    - name: kubelet 상태 확인
+      command: systemctl status kubelet
+      register: kubelet_status
+      changed_when: false
+
+    - name: kubelet 상태 출력
+      debug:
+        var: kubelet_status.stdout_lines
 
 # 마스터 노드 설정
 - name: Kubernetes 마스터 노드 초기화
@@ -211,11 +232,13 @@
         fi
       changed_when: false
 
+    - name: containerd와 kubelet이 안정화될 때까지 대기
+      pause:
+        seconds: 10
+
     - name: 클러스터 초기화
       shell: |
-        kubeadm init \
-          --pod-network-cidr={{ pod_network_cidr }} \
-          --apiserver-advertise-address=192.168.100.20
+        kubeadm init --pod-network-cidr=20.96.0.0/16 --apiserver-advertise-address=192.168.100.20
       register: kubeadm_init
 
     - name: kubectl 설정 디렉토리 생성
