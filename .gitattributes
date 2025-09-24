@@ -1,0 +1,10 @@
+# YAML 파일은 LF로 유지
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Shell 스크립트도 LF 유지
+*.sh text eol=lf
+
+# Ansible 관련 파일들
+ansible/**/*.yml text eol=lf
+ansible/**/*.yaml text eol=lf
