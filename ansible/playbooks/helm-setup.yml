@@ -4,6 +4,21 @@
   become: true
   
   tasks:
+    # 클러스터 상태 확인 추가
+    - name: 클러스터 상태 확인
+      shell: kubectl get nodes | grep -c " Ready"
+      register: ready_nodes
+      failed_when: ready_nodes.stdout | int < 3
+      environment:
+        KUBECONFIG: /root/.kube/config
+
+    - name: kube-system pods 확인
+      shell: kubectl get pods -n kube-system | grep -E "Running|Completed" | wc -l
+      register: system_pods
+      failed_when: system_pods.stdout | int < 5
+      environment:
+        KUBECONFIG: /root/.kube/config
+
     - name: Helm 설치 확인
       command: helm version
       register: helm_check

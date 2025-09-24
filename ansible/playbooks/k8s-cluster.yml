@@ -9,56 +9,41 @@
     
   tasks:
 
-     # 기존 클러스터 및 쿠버네티스 완전 제거
-    - name: 기존 클러스터 리셋 및 정리
+    # 기존 프로세스 정리
+    - name: 기존 kubernetes 프로세스 강제 종료
       shell: |
-        # kubeadm이 설치되어 있으면 리셋
-        if command -v kubeadm &> /dev/null; then
-          kubeadm reset -f
-        fi
-        
-        # 모든 k8s 관련 디렉토리 삭제
-        rm -rf /etc/cni/net.d
-        rm -rf /var/lib/etcd
-        rm -rf /var/lib/kubelet
-        rm -rf /var/lib/dockershim
-        rm -rf /var/run/kubernetes
-        rm -rf /etc/kubernetes
-        rm -rf /root/.kube
-        rm -rf $HOME/.kube
-        
-        # iptables 규칙 정리
-        iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
-        iptables -t nat -A POSTROUTING -j MASQUERADE
-        
-        # ipvs 정리
-        ipvsadm -C || true
-        
-        # 네트워크 인터페이스 정리
-        ip link delete cni0 || true
-        ip link delete flannel.1 || true
-        ip link delete tunl0 || true
-        
-        # containerd 정리
-        if command -v crictl &> /dev/null; then
-          crictl rm -fa || true
-          crictl rmi -a || true
-        fi
+        pkill -9 -f kubeadm 2>/dev/null || true
+        pkill -9 -f kubelet 2>/dev/null || true
+        systemctl stop kubelet 2>/dev/null || true
+        systemctl stop containerd 2>/dev/null || true
+        exit 0  # 항상 성공으로 종료
       ignore_errors: yes
       changed_when: false
 
-    - name: kubelet 서비스 중지 및 비활성화
-      systemd:
-        name: kubelet
-        state: stopped
-        enabled: false
-      ignore_errors: yes
+    - name: 잠시 대기 (프로세스 정리)
+      pause:
+        seconds: 5
 
-    - name: containerd 서비스 중지
-      systemd:
-        name: containerd
-        state: stopped
+    - name: 기존 클러스터 리셋 및 정리
+      shell: |
+        # kubeadm이 설치되어 있으면 리셋 (짧은 타임아웃으로)
+        if command -v kubeadm &>/dev/null; then
+          timeout 10 kubeadm reset -f --skip-phases=cleanup-node || true
+        fi
+        
+        # 디렉토리 삭제
+        rm -rf /etc/{cni,kubernetes} /var/lib/{etcd,kubelet,dockershim} \
+               /var/run/kubernetes /root/.kube $HOME/.kube
+        
+        # iptables 정리
+        iptables -F && iptables -t nat -F && iptables -X
+        
+        # 네트워크 인터페이스 정리
+        ip link | grep -E "cni0|flannel.1|tunl0" | awk -F: '{print $2}' | xargs -r -n1 ip link delete 2>/dev/null || true
       ignore_errors: yes
+      changed_when: false
+      async: 30  # 30초 내에 완료되도록
+      poll: 5
 
     # Rocky Linux 기본 설정
     - name: 타임존 설정
@@ -210,6 +195,7 @@
       command: systemctl status kubelet
       register: kubelet_status
       changed_when: false
+      failed_when: false 
 
     - name: kubelet 상태 출력
       debug:

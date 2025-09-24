@@ -7,3 +7,6 @@
 4. ./scripts/vagrant-ansible.sh playbook k8s-cluster   # K8s 구축
 5. ./scripts/vagrant-ansible.sh playbook nfs-setup   # nfs 설정
 6. ./scripts/vagrant-ansible.sh playbook helm-setup    # 기본 그라파나 프로메테우스 provisioner 설치
+
+
+0. ./scripts/vagrant-ansible.sh deploy-all # 한번에 설치하기

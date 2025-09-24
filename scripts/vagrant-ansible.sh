@@ -178,6 +178,56 @@ $command
 EOF
 }
 
+# 전체 자동 실행 함수
+run_all_setup() {
+    log_info "========================================="
+    log_info "전체 환경 구축을 시작합니다..."
+    log_info "========================================="
+    
+    local steps=(
+        "setup:Ansible 환경 설정"
+        "ping:노드 연결 테스트"
+        "playbook k8s-cluster:Kubernetes 클러스터 구축"
+        "playbook nfs-setup:NFS 설정"
+        "playbook helm-setup:Helm 및 모니터링 스택 설치"
+    )
+    
+    local total=${#steps[@]}
+    local current=0
+    
+    for step in "${steps[@]}"; do
+        ((current++))
+        local cmd="${step%%:*}"
+        local desc="${step#*:}"
+        
+        log_info "[$current/$total] $desc 실행 중..."
+        log_info "명령: $0 $cmd"
+        
+        # 실제 명령 실행
+        if run_ansible_script $cmd; then
+            log_success "[$current/$total] $desc 완료!"
+            sleep 5  # 다음 단계 전 잠시 대기
+        else
+            log_error "[$current/$total] $desc 실패!"
+            log_error "설치 중단됨. 문제를 확인하세요."
+            return 1
+        fi
+        
+        echo ""  # 구분선
+    done
+    
+    log_success "========================================="
+    log_success "전체 환경 구축이 완료되었습니다!"
+    log_success "========================================="
+    
+    # 최종 상태 확인
+    log_info "최종 상태 확인..."
+    run_ansible_script status
+    
+    return 0
+}
+
+
 # 메인 함수
 main() {
     # 인자가 없으면 도움말 표시
@@ -249,6 +299,13 @@ main() {
             run_direct_command "$*"
             exit $?
             ;;
+        all|deploy-all)
+        # Vagrant 상태 확인
+        check_vagrant_status
+        # 전체 실행
+        run_all_setup
+        exit $?
+        ;;
     esac
     
     # Vagrant 상태 확인 (기본 VM)
