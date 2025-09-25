@@ -23,12 +23,30 @@ spec:
               - key: node-role.kubernetes.io/master
                 operator: DoesNotExist
       initContainers:
+      - name: fix-permissions
+        image: busybox
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Setting up data directory permissions..."
+          chown -R 33:33 /mnt/data/
+          chmod -R 755 /mnt/data/
+          mkdir -p /mnt/data/config /mnt/data/files
+          chown -R 33:33 /mnt/data/config /mnt/data/files
+          echo "Permissions setup completed"
+        volumeMounts:
+        - name: owncloud-data
+          mountPath: /mnt/data
+        securityContext:
+          runAsUser: 0  # root 권한으로 실행
       - name: wait-for-db
-        image: busybox:1.35
-        command: ['sh', '-c', 'until nc -z mariadb-service 3306; do echo waiting for mariadb; sleep 2; done;']
+        image: mysql:8.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until mysqladmin ping -h mariadb-service --silent; do echo waiting for mariadb; sleep 2; done;']
       containers:
       - name: owncloud
         image: owncloud/server:10.13
+        imagePullPolicy: IfNotPresent
         envFrom:
         - configMapRef:
             name: owncloud-config
@@ -38,9 +56,11 @@ spec:
         - name: OWNCLOUD_REDIS_PASSWORD
           value: "redis123!"
         - name: OWNCLOUD_TRUSTED_DOMAINS
-          value: "*"
+          value: "localhost,192.168.100.30,192.168.100.30:30090"
+        - name: OWNCLOUD_OVERWRITEHOST
+          value: "192.168.100.30:30090"
         - name: OWNCLOUD_OVERWRITE_WEBROOT
-          value: "/"
+          value: ""
         - name: OWNCLOUD_OVERWRITE_PROTOCOL
           value: "http"
         ports:
@@ -49,19 +69,22 @@ spec:
         volumeMounts:
         - name: owncloud-data
           mountPath: /mnt/data
+        securityContext:
+          runAsUser: 0     # root로 실행 (Apache 설정 파일 쓰기 권한 필요)
+          fsGroup: 33      # 파일 시스템은 www-data 그룹으로 설정
         resources:
           requests:
-            memory: "256Mi"
-            cpu: "200m"
-          limits:
             memory: "512Mi"
             cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
         readinessProbe:
           tcpSocket:
             port: 8080
           initialDelaySeconds: 30
           periodSeconds: 5
-        livenessProbe:  # 중복 제거
+        livenessProbe:
           tcpSocket:
             port: 8080
           initialDelaySeconds: 120

@@ -17,6 +17,7 @@ spec:
       containers:
       - name: mariadb
         image: mariadb:10.6
+        imagePullPolicy: IfNotPresent
         env:
         - name: MYSQL_ROOT_PASSWORD
           valueFrom:

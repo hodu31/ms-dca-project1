@@ -1,0 +1,51 @@
+---
+- name: Pre-pull container images using crictl
+  hosts: all
+  become: yes
+  vars:
+    images:
+      - docker.io/library/mysql:8.0
+      - docker.io/owncloud/server:10.13
+      - docker.io/library/redis:7-alpine
+      - docker.io/library/mariadb:10.6
+      - docker.io/library/busybox:latest 
+    
+  tasks:
+    - name: Install crictl if not present
+      shell: |
+        if ! command -v crictl &> /dev/null; then
+          VERSION="v1.28.0"
+          wget https://github.com/kubernetes-sigs/cri-tools/releases/download/${VERSION}/crictl-${VERSION}-linux-amd64.tar.gz
+          tar zxvf crictl-${VERSION}-linux-amd64.tar.gz -C /usr/local/bin
+          rm -f crictl-${VERSION}-linux-amd64.tar.gz
+        fi
+      args:
+        creates: /usr/local/bin/crictl
+
+    - name: Configure crictl
+      copy:
+        dest: /etc/crictl.yaml
+        content: |
+          runtime-endpoint: unix:///run/containerd/containerd.sock
+          image-endpoint: unix:///run/containerd/containerd.sock
+          timeout: 10
+          debug: false
+
+    - name: Pull images with crictl
+      command: crictl pull {{ item }}
+      loop: "{{ images }}"
+      register: pull_results
+      retries: 3
+      delay: 10
+      until: pull_results.rc == 0
+
+    - name: List all images
+      command: crictl images
+      register: all_images
+      changed_when: false
+
+    - name: Display results
+      debug:
+        msg: |
+          Successfully pulled images on {{ inventory_hostname }}:
+          {{ all_images.stdout }}

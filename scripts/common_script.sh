@@ -7,18 +7,23 @@ echo "========================================="
 echo "=== SSH 서버 설치 ==="
 dnf install -y openssh-server openssh-clients
 
-# 패스워드 설정 - 대문자로 수정
+# 패스워드 설정
 echo "root:${ROOT_PASSWORD}" | chpasswd
 echo "vagrant:${VAGRANT_PASSWORD}" | chpasswd
 
-echo "=== 방화벽 설정 ==="
-systemctl start firewalld
-firewall-cmd --permanent --add-service=ssh
-firewall-cmd --permanent --zone=trusted --add-source=192.168.100.0/24
-firewall-cmd --reload
+# 방화벽 완전 비활성화 (Kubernetes 권장)
+echo "=== 방화벽 비활성화 ==="
+systemctl stop firewalld
+systemctl disable firewalld
 
+# DNS 설정 (중복 방지)
 echo "=== DNS 설정 ==="
-echo "nameserver 168.126.63.1" >> /etc/resolv.conf
+if ! grep -q "nameserver 168.126.63.1" /etc/resolv.conf; then
+    echo "nameserver 168.126.63.1" >> /etc/resolv.conf
+fi
+if ! grep -q "nameserver 8.8.8.8" /etc/resolv.conf; then
+    echo "nameserver 8.8.8.8" >> /etc/resolv.conf
+fi
 
 echo "=== sudoers 설정 ==="
 echo "vagrant ALL=(ALL) NOPASSWD: ALL" > /etc/sudoers.d/vagrant
@@ -48,17 +53,25 @@ echo "=== 시간 설정 ==="
 timedatectl set-timezone Asia/Seoul
 timedatectl set-ntp true
 
-# hosts 파일 설정 - 대문자로 수정
+# hosts 파일 설정
 echo "=== host 파일 설정 ==="
-cat << EOF >> /etc/hosts
+# 중복 방지
+grep -q "k8s-master" /etc/hosts || cat << EOF >> /etc/hosts
 ${K8S_MASTER_IP} k8s-master
 ${NETWORK_SUBNET}.${K8S_WORKER_START_IP} k8s-worker1
 ${NETWORK_SUBNET}.$((${K8S_WORKER_START_IP} + 1)) k8s-worker2
 EOF
 
 # 커널 모듈 로드
+echo "=== 커널 모듈 설정 ==="
+modprobe overlay
 modprobe br_netfilter
-echo 'br_netfilter' > /etc/modules-load.d/k8s.conf
+
+# 커널 모듈 영구 설정
+cat <<EOF > /etc/modules-load.d/k8s.conf
+overlay
+br_netfilter
+EOF
 
 # 커널 파라미터 설정
 cat <<EOF > /etc/sysctl.d/k8s.conf

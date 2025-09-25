@@ -14,6 +14,12 @@ firewall-cmd --permanent --add-port=10250/tcp     # kubelet
 firewall-cmd --permanent --add-port=10251/tcp     # kube-scheduler
 firewall-cmd --permanent --add-port=10252/tcp     # kube-controller-manager
 firewall-cmd --permanent --add-port=10255/tcp     # kubelet read-only
+# Calico 사용 시
+firewall-cmd --permanent --add-port=179/tcp
+firewall-cmd --permanent --add-port=4789/udp
+
+# Flannel 사용 시
+firewall-cmd --permanent --add-port=8472/udp
 firewall-cmd --reload
 
 # Swap 비활성화 (K8s 요구사항)
