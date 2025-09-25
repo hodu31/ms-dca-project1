@@ -52,7 +52,7 @@ Vagrant.configure("2") do |config|
     master.vm.box = "generic/rocky9"
     
     # SSH 포트 설정
-    master.vm.network "forwarded_port", guest: 22, host: 2210, id: "ssh", auto_correct: false
+    master.vm.network "forwarded_port", guest: 22, host: 2210, id: "ssh", auto_correct: true
     
     master.vm.provider "vmware_desktop" do |vmware|
       vmware.gui = false
@@ -97,7 +97,7 @@ Vagrant.configure("2") do |config|
       
       # Worker별 SSH 포트 설정
       ssh_port = 2210 + i
-      worker.vm.network "forwarded_port", guest: 22, host: ssh_port, id: "ssh", auto_correct: false
+      worker.vm.network "forwarded_port", guest: 22, host: ssh_port, id: "ssh", auto_correct: true
       
       worker.vm.provider "vmware_desktop" do |vmware|
         vmware.gui = false
