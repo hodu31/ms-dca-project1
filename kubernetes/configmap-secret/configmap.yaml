@@ -1,0 +1,16 @@
+# owncloud-configmap-fix.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: owncloud-config
+  namespace: owncloud
+data:
+  OWNCLOUD_DOMAIN: "localhost:8080"
+  OWNCLOUD_TRUSTED_DOMAINS: "localhost,*"  # 모든 도메인 허용
+  OWNCLOUD_DB_TYPE: "mysql"
+  OWNCLOUD_DB_NAME: "owncloud"
+  OWNCLOUD_DB_HOST: "mariadb-service"
+  OWNCLOUD_MYSQL_UTF8MB4: "true"
+  OWNCLOUD_REDIS_ENABLED: "true"
+  OWNCLOUD_REDIS_HOST: "redis-service"
+  OWNCLOUD_SKIP_CHOWN: "true"  # 성능 향상을 위해 추가

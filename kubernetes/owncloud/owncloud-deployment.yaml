@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: owncloud
+  namespace: owncloud
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: owncloud
+  template:
+    metadata:
+      labels:
+        app: owncloud
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
+      initContainers:
+      - name: wait-for-db
+        image: busybox:1.35
+        command: ['sh', '-c', 'until nc -z mariadb-service 3306; do echo waiting for mariadb; sleep 2; done;']
+      containers:
+      - name: owncloud
+        image: owncloud/server:10.13
+        envFrom:
+        - configMapRef:
+            name: owncloud-config
+        - secretRef:
+            name: owncloud-secret
+        env:
+        - name: OWNCLOUD_REDIS_PASSWORD
+          value: "redis123!"
+        - name: OWNCLOUD_TRUSTED_DOMAINS
+          value: "*"
+        - name: OWNCLOUD_OVERWRITE_WEBROOT
+          value: "/"
+        - name: OWNCLOUD_OVERWRITE_PROTOCOL
+          value: "http"
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: owncloud-data
+          mountPath: /mnt/data
+        resources:
+          requests:
+            memory: "256Mi"
+            cpu: "200m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:  # 중복 제거
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 10
+      volumes:
+      - name: owncloud-data
+        persistentVolumeClaim:
+          claimName: owncloud-shared-pvc
