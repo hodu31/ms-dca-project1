@@ -6,7 +6,7 @@ metadata:
 spec:
   accessModes:
     - ReadWriteMany  # 여러 Pod이 동시 접근 가능
-  storageClassName: ""
+  storageClassName: nfs-client
   resources:
     requests:
       storage: 50Gi
