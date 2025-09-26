@@ -2,9 +2,10 @@
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
   -keyout tls.key \
   -out tls.crt \
-  -subj "/CN=owncloud.example.com/O=owncloud"
+  -subj "/CN=msdca.shop/O=owncloud"
 
-# Secret 생성
+# Secret 업데이트
+kubectl delete secret owncloud-tls -n owncloud
 kubectl create secret tls owncloud-tls \
   --key tls.key \
   --cert tls.crt \
