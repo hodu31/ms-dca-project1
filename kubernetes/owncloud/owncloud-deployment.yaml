@@ -56,7 +56,7 @@ spec:
         - name: OWNCLOUD_REDIS_PASSWORD
           value: "redis123!"
         - name: OWNCLOUD_TRUSTED_DOMAINS
-          value: "localhost,192.168.100.30,192.168.100.30:30090"
+          value: "localhost,192.168.100.30,192.168.100.30:30090,192.168.100.20:30090,192.168.100.31:30090"
         - name: OWNCLOUD_OVERWRITEHOST
           value: "192.168.100.30:30090"
         - name: OWNCLOUD_OVERWRITE_WEBROOT
