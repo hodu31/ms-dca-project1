@@ -5,7 +5,7 @@ metadata:
   name: owncloud-config
   namespace: owncloud
 data:
-  OWNCLOUD_DOMAIN: "localhost:8080"
+  OWNCLOUD_DOMAIN: "msdca.shop"
   OWNCLOUD_TRUSTED_DOMAINS: "localhost,*"  # 모든 도메인 허용
   OWNCLOUD_DB_TYPE: "mysql"
   OWNCLOUD_DB_NAME: "owncloud"

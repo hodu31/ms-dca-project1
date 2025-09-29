@@ -5,7 +5,7 @@ metadata:
   namespace: owncloud
   annotations:
     nginx.ingress.kubernetes.io/rewrite-target: /
-    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"  # 테스트 중에는 false
     nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
     nginx.ingress.kubernetes.io/proxy-body-size: "512m"
     nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
@@ -30,7 +30,7 @@ spec:
     - msdca.shop
     secretName: owncloud-tls
   rules:
-  - host: msdca.shop
+  - host: www.msdca.shop  # www 도메인 추가
     http:
       paths:
       - path: /
@@ -40,7 +40,18 @@ spec:
             name: owncloud-service
             port:
               number: 80
-  - http:  # host 필드 없이 - 모든 호스트 허용
+  - host: msdca.shop  # 기존 루트 도메인
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: owncloud-service
+            port:
+              number: 80
+  # IP 직접 접속용 (host 필드 없음)
+  - http:
       paths:
       - path: /
         pathType: Prefix
