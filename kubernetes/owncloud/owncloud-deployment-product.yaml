@@ -57,14 +57,13 @@ spec:
         - name: OWNCLOUD_REDIS_PASSWORD
           value: "redis123!"
         - name: OWNCLOUD_TRUSTED_DOMAINS
-          value: "localhost,192.168.100.30,192.168.100.30:30090,192.168.100.20:30090,192.168.100.31:30090"
-          
+          value: "localhost,msdca.shop,www.msdca.shop"  # 도메인으로 변경
         - name: OWNCLOUD_OVERWRITEHOST
-          value: "192.168.100.30:30090"
+          value: "msdca.shop"  # 도메인으로 변경
         - name: OWNCLOUD_OVERWRITE_WEBROOT
           value: ""
         - name: OWNCLOUD_OVERWRITE_PROTOCOL
-          value: "http"
+          value: "https"  # https로 변경
         ports:
         - containerPort: 8080
           name: http
