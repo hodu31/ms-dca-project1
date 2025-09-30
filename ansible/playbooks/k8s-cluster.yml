@@ -3,8 +3,8 @@
   hosts: all
   become: true
   vars:
-      docker_username: "sungsam9709@gmail.com"
-      docker_password: "abdicate9709!"
+      docker_username: "email"
+      docker_password: "secret"
       dockerhub_auth: "{{ (docker_username + ':' + docker_password) | b64encode }}"
       k8s_version: "1.27.2"
       pod_network_cidr: "20.96.0.0/16"
