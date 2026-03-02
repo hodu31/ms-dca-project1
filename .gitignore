@@ -1,0 +1,54 @@
+# Vagrant
+.vagrant/
+*.log
+
+# Ansible
+*.retry
+ansible.log
+.ansible/
+
+# SSH Keys
+*.pem
+*.key
+id_rsa*
+
+# 민감한 설정 파일 (필요시 주석 해제)
+config.yaml
+all.yml
+
+# VMware
+vmware.log
+*.vmx.lck/
+*.vmdk.lck/
+
+# 임시 파일
+*.tmp
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.sublime-*
+
+# Logs
+logs/
+*.log
+
+# Backup files
+*.backup
+*.bak
+
+# Local environment files
+.env
+.env.local

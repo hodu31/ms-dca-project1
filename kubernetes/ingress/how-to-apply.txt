@@ -1,0 +1,18 @@
+# ingress/ 폴더에서 실행
+kubectl create secret tls owncloud-tls \
+  --cert=tls.crt \
+  --key=tls.key \
+  --namespace=owncloud
+
+
+kubectl apply -f ingress.yaml
+
+
+# Secret 확인
+kubectl get secret owncloud-tls -n owncloud
+
+# Ingress 확인
+kubectl get ingress -n owncloud
+
+# 인증서 확인
+kubectl describe ingress owncloud-ingress -n owncloud

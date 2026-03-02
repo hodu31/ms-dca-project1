@@ -1,0 +1,52 @@
+# ingress.yaml (기존 TLS 파일 사용)
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: owncloud-ingress
+  namespace: owncloud
+  annotations:
+    # 기본 NGINX 설정
+    nginx.ingress.kubernetes.io/rewrite-target: /
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    
+    # OwnCloud 특화 설정
+    nginx.ingress.kubernetes.io/proxy-body-size: "512m"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "300"
+    
+    # OwnCloud 보안 헤더
+    nginx.ingress.kubernetes.io/server-snippet: |
+      add_header X-Content-Type-Options nosniff;
+      add_header X-Frame-Options DENY;
+      add_header X-XSS-Protection "1; mode=block";
+      add_header Referrer-Policy "no-referrer";
+      add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload";
+      
+    # OwnCloud 특수 경로 처리
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      location = /.well-known/carddav {
+        return 301 $scheme://$host/remote.php/dav;
+      }
+      location = /.well-known/caldav {
+        return 301 $scheme://$host/remote.php/dav;
+      }
+
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - msdca.shop
+    secretName: owncloud-tls
+  rules:
+  - host: msdca.shop
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: owncloud-service
+            port:
+              number: 80

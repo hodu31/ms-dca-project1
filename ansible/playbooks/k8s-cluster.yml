@@ -1,0 +1,418 @@
+---
+- name: Kubernetes 클러스터 구축 (k8s 1.27.2)
+  hosts: all
+  become: true
+  vars:
+      docker_username: "email"
+      docker_password: "secret"
+      dockerhub_auth: "{{ (docker_username + ':' + docker_password) | b64encode }}"
+      k8s_version: "1.27.2"
+      pod_network_cidr: "20.96.0.0/16"
+      master_ip: "192.168.100.20"
+
+  tasks:
+      # 기존 프로세스 정리
+      - name: 기존 kubernetes 프로세스 강제 종료
+        shell: |
+            pkill -9 -f kubeadm 2>/dev/null || true
+            pkill -9 -f kubelet 2>/dev/null || true
+            systemctl stop kubelet 2>/dev/null || true
+            systemctl stop containerd 2>/dev/null || true
+            exit 0  # 항상 성공으로 종료
+        ignore_errors: yes
+        changed_when: false
+
+      - name: 잠시 대기 (프로세스 정리)
+        pause:
+            seconds: 5
+
+      - name: 기존 클러스터 리셋 및 정리
+        shell: |
+            # kubeadm이 설치되어 있으면 리셋 (짧은 타임아웃으로)
+            if command -v kubeadm &>/dev/null; then
+              timeout 10 kubeadm reset -f --skip-phases=cleanup-node || true
+            fi
+
+            # 디렉토리 삭제
+            rm -rf /etc/{cni,kubernetes} /var/lib/{etcd,kubelet,dockershim} \
+                   /var/run/kubernetes /root/.kube $HOME/.kube
+
+            # iptables 정리
+            iptables -F && iptables -t nat -F && iptables -X
+
+            # 네트워크 인터페이스 정리
+            ip link | grep -E "cni0|flannel.1|tunl0" | awk -F: '{print $2}' | xargs -r -n1 ip link delete 2>/dev/null || true
+        ignore_errors: yes
+        changed_when: false
+        async: 30 # 30초 내에 완료되도록
+        poll: 5
+
+      - name: 추가 정리 작업
+        shell: |
+            # Docker/containerd 이미지 정리
+            crictl rmi --all 2>/dev/null || true
+
+            # 남은 Pod 네트워크 정리
+            ip link delete docker0 2>/dev/null || true
+            ip link delete kube-bridge 2>/dev/null || true
+
+            # 마운트 포인트 정리
+            umount $(mount | grep '/var/lib/kubelet' | awk '{print $3}') 2>/dev/null || true
+
+            # 추가 iptables 체인 정리
+            iptables -t nat -X KUBE-SERVICES 2>/dev/null || true
+            iptables -t nat -X KUBE-NODEPORTS 2>/dev/null || true
+
+      # Rocky Linux 기본 설정
+      - name: 타임존 설정
+        timezone:
+            name: Asia/Seoul
+
+      - name: chrony 시간 동기화
+        shell: chronyc makestep
+        changed_when: false
+
+      - name: 필수 패키지 설치
+        dnf:
+            name:
+                - cloud-utils-growpart
+                - yum-utils
+                - iproute-tc
+            state: present
+
+      - name: Disk 확장
+        shell: |
+            growpart /dev/sda 4 || true
+            xfs_growfs /dev/sda4 || true
+        changed_when: false
+
+      - name: hosts 파일 설정
+        blockinfile:
+            path: /etc/hosts
+            block: |
+                192.168.100.20 k8s-master
+                192.168.100.30 k8s-worker1
+                192.168.100.31 k8s-worker2
+            marker: "# {mark} ANSIBLE MANAGED BLOCK - k8s hosts"
+
+      # kubeadm 설치 전 사전작업
+      - name: 방화벽 비활성화
+        systemd:
+            name: firewalld
+            state: stopped
+            enabled: false
+
+      - name: Swap 비활성화
+        shell: |
+            swapoff -a
+            sed -i '/ swap / s/^/#/' /etc/fstab
+        changed_when: false
+
+      - name: SELinux 설정
+        selinux:
+            state: permissive
+            policy: targeted
+
+      # 컨테이너 런타임 설치
+      - name: 커널 모듈 로드 설정
+        copy:
+            dest: /etc/modules-load.d/k8s.conf
+            content: |
+                overlay
+                br_netfilter
+
+      - name: 커널 모듈 로드
+        modprobe:
+            name: "{{ item }}"
+            state: present
+        loop:
+            - overlay
+            - br_netfilter
+
+      - name: 커널 파라미터 설정
+        copy:
+            dest: /etc/sysctl.d/k8s.conf
+            content: |
+                net.bridge.bridge-nf-call-iptables  = 1
+                net.bridge.bridge-nf-call-ip6tables = 1
+                net.ipv4.ip_forward                 = 1
+
+      - name: sysctl 설정 적용
+        command: sysctl --system
+        changed_when: false
+
+      # Docker 저장소 추가
+      - name: Docker 저장소 추가 (CentOS 8 호환성)
+        yum_repository:
+            name: docker-ce
+            description: Docker CE Repository
+            baseurl: https://download.docker.com/linux/centos/8/$basearch/stable
+            gpgcheck: yes
+            gpgkey: https://download.docker.com/linux/centos/gpg
+
+      - name: containerd 설치
+        dnf:
+            name: containerd.io
+            state: latest
+            update_cache: yes
+
+      # containerd 설치 후, 이미지 pull 전에 추가
+      - name: Docker 설치 (ctr 명령을 위해)
+        dnf:
+            name: docker-ce-cli
+            state: present
+
+      - name: Docker Hub 로그인을 위한 디렉토리 생성
+        file:
+            path: /root/.docker
+            state: directory
+            mode: "0700"
+
+      - name: Docker Hub 로그인 정보 설정
+        copy:
+            dest: /root/.docker/config.json
+            content: |
+                {
+                  "auths": {
+                    "https://index.docker.io/v1/": {
+                      "auth": "{{ dockerhub_auth }}"
+                    }
+                  }
+                }
+            mode: "0600"
+
+      - name: containerd 기본 설정 생성
+        shell: containerd config default > /etc/containerd/config.toml
+        changed_when: false
+
+      - name: containerd SystemdCgroup 설정
+        replace:
+            path: /etc/containerd/config.toml
+            regexp: "SystemdCgroup = false"
+            replace: "SystemdCgroup = true"
+
+      - name: containerd 재시작 및 활성화
+        systemd:
+            name: containerd
+            state: restarted
+            enabled: true
+            daemon_reload: true
+
+      # kubeadm 설치
+      - name: Kubernetes 저장소 추가
+        yum_repository:
+            name: kubernetes
+            description: Kubernetes Repository
+            baseurl: https://pkgs.k8s.io/core:/stable:/v1.27/rpm/
+            gpgcheck: true
+            gpgkey: https://pkgs.k8s.io/core:/stable:/v1.27/rpm/repodata/repomd.xml.key
+            exclude: kubelet kubeadm kubectl cri-tools kubernetes-cni
+
+      - name: Kubernetes 패키지 설치
+        dnf:
+            name:
+                - kubelet-1.27.2
+                - kubeadm-1.27.2
+                - kubectl-1.27.2
+            state: present
+            disable_excludes: kubernetes
+
+      - name: kubelet 서비스 활성화
+        systemd:
+            name: kubelet
+            enabled: true
+
+      - name: kubelet 설정 파일 생성
+        copy:
+            dest: /etc/sysconfig/kubelet
+            content: |
+                KUBELET_EXTRA_ARGS="--cgroup-driver=systemd"
+
+      - name: kubelet 재시작
+        systemd:
+            name: kubelet
+            state: restarted
+            daemon_reload: true
+
+      - name: kubelet 상태 확인
+        command: systemctl status kubelet
+        register: kubelet_status
+        changed_when: false
+        failed_when: false
+
+      - name: kubelet 상태 출력
+        debug:
+            var: kubelet_status.stdout_lines
+
+# 마스터 노드 설정
+- name: Kubernetes 마스터 노드 초기화
+  hosts: masters
+  become: true
+  vars:
+      pod_network_cidr: "20.96.0.0/16"
+
+  tasks:
+      - name: 기존 클러스터 리셋
+        shell: |
+            if [ -f /etc/kubernetes/admin.conf ]; then
+              kubeadm reset -f
+              rm -rf /etc/kubernetes /root/.kube /var/lib/etcd
+              iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+            fi
+        changed_when: false
+
+      - name: containerd와 kubelet이 안정화될 때까지 대기
+        pause:
+            seconds: 10
+
+      - name: 클러스터 초기화
+        shell: |
+            kubeadm init --pod-network-cidr=20.96.0.0/16 --apiserver-advertise-address=192.168.100.20
+        register: kubeadm_init
+
+      - name: kubectl 설정 디렉토리 생성
+        file:
+            path: /root/.kube
+            state: directory
+            mode: "0755"
+
+      - name: kubectl 설정 파일 복사
+        copy:
+            src: /etc/kubernetes/admin.conf
+            dest: /root/.kube/config
+            owner: root
+            group: root
+            mode: "0644"
+            remote_src: true
+
+      - name: Pod Network 설치 (Calico)
+        shell: |
+            kubectl create -f https://raw.githubusercontent.com/k8s-1pro/install/main/ground/k8s-1.27/calico-3.26.4/calico.yaml
+            kubectl create -f https://raw.githubusercontent.com/k8s-1pro/install/main/ground/k8s-1.27/calico-3.26.4/calico-custom.yaml
+        environment:
+            KUBECONFIG: /root/.kube/config
+        retries: 3
+        delay: 10
+
+      - name: 마스터 노드 taint 제거
+        shell: kubectl taint nodes k8s-master node-role.kubernetes.io/control-plane-
+        environment:
+            KUBECONFIG: /root/.kube/config
+        ignore_errors: yes
+
+      - name: kubectl 자동완성 설정
+        blockinfile:
+            path: /root/.bashrc
+            block: |
+                source <(kubectl completion bash)
+                alias k=kubectl
+                complete -o default -F __start_kubectl k
+            marker: "# {mark} ANSIBLE MANAGED BLOCK - kubectl completion"
+
+      - name: Dashboard 설치
+        shell: kubectl create -f https://raw.githubusercontent.com/k8s-1pro/install/main/ground/k8s-1.27/dashboard-2.7.0/dashboard.yaml
+        environment:
+            KUBECONFIG: /root/.kube/config
+        ignore_errors: yes
+
+      - name: Metrics Server 설치
+        shell: kubectl create -f https://raw.githubusercontent.com/k8s-1pro/install/main/ground/k8s-1.27/metrics-server-0.6.3/metrics-server.yaml
+        environment:
+            KUBECONFIG: /root/.kube/config
+        ignore_errors: yes
+
+      - name: 워커 노드 조인 토큰 생성
+        shell: kubeadm token create --print-join-command
+        register: join_command_result
+
+      - name: 조인 명령어 저장
+        set_fact:
+            join_command: "{{ join_command_result.stdout }}"
+            cacheable: yes
+
+# 워커 노드 조인
+- name: 워커 노드를 클러스터에 조인
+  hosts: workers
+  become: true
+
+  tasks:
+      - name: 기존 설정 정리
+        shell: |
+            if [ -f /etc/kubernetes/kubelet.conf ]; then
+              kubeadm reset -f
+              rm -rf /etc/kubernetes /var/lib/kubelet
+              iptables -F && iptables -t nat -F && iptables -t mangle -F && iptables -X
+            fi
+        changed_when: false
+
+      - name: 워커 노드 클러스터 조인
+        shell: "{{ hostvars[groups['masters'][0]]['join_command'] }}"
+        retries: 3
+        delay: 5
+
+# 클러스터 상태 확인
+- name: 클러스터 상태 확인 및 검증
+  hosts: masters
+  become: true
+
+  tasks:
+      - name: 노드 Ready 상태 대기
+        shell: kubectl get nodes --no-headers | grep -c " Ready"
+        register: ready_nodes
+        until: ready_nodes.stdout | int >= groups['all'] | length
+        retries: 60
+        delay: 10
+        environment:
+            KUBECONFIG: /root/.kube/config
+        changed_when: false
+
+      - name: 노드 상태 확인
+        shell: kubectl get nodes -o wide
+        register: nodes_status
+        environment:
+            KUBECONFIG: /root/.kube/config
+        changed_when: false
+
+      - name: 노드 상태 출력
+        debug:
+            var: nodes_status.stdout_lines
+
+      - name: 시스템 Pod 상태 확인
+        shell: kubectl get pods -n kube-system
+        register: system_pods
+        environment:
+            KUBECONFIG: /root/.kube/config
+        changed_when: false
+
+      - name: 시스템 Pod 상태 출력
+        debug:
+            var: system_pods.stdout_lines
+
+      - name: 설치된 리소스 확인
+        shell: |
+            echo "=== Namespaces ==="
+            kubectl get ns
+            echo -e "\n=== Dashboard ==="
+            kubectl get all -n kubernetes-dashboard
+            echo -e "\n=== Metrics Server ==="
+            kubectl get all -n kube-system | grep metrics
+        register: resources
+        environment:
+            KUBECONFIG: /root/.kube/config
+        changed_when: false
+
+      - name: 리소스 상태 출력
+        debug:
+            var: resources.stdout_lines
+
+      - name: 클러스터 구축 완료 메시지
+        debug:
+            msg:
+                - "======================="
+                - "Kubernetes 1.27.2 클러스터가 성공적으로 구축되었습니다!"
+                - "Master: 192.168.100.20"
+                - "Worker1: 192.168.100.30"
+                - "Worker2: 192.168.100.31"
+                - "======================="
+                - "Dashboard와 Metrics Server가 설치되었습니다."
+                - "kubectl 사용: export KUBECONFIG=/root/.kube/config"

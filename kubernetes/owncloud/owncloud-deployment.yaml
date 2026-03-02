@@ -1,0 +1,97 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: owncloud
+  namespace: owncloud
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: owncloud
+  template:
+    metadata:
+      labels:
+        app: owncloud
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: node-role.kubernetes.io/control-plane
+                operator: DoesNotExist
+              - key: node-role.kubernetes.io/master
+                operator: DoesNotExist
+      initContainers:
+      - name: fix-permissions
+        image: busybox
+        imagePullPolicy: IfNotPresent 
+        command: ['sh', '-c']
+        args:
+        - |
+          echo "Setting up data directory permissions..."
+          chown -R 33:33 /mnt/data/
+          chmod -R 755 /mnt/data/
+          mkdir -p /mnt/data/config /mnt/data/files
+          chown -R 33:33 /mnt/data/config /mnt/data/files
+          echo "Permissions setup completed"
+        volumeMounts:
+        - name: owncloud-data
+          mountPath: /mnt/data
+        securityContext:
+          runAsUser: 0  # root 권한으로 실행
+      - name: wait-for-db
+        image: mysql:8.0
+        imagePullPolicy: IfNotPresent
+        command: ['sh', '-c', 'until mysqladmin ping -h mariadb-service --silent; do echo waiting for mariadb; sleep 2; done;']
+      containers:
+      - name: owncloud
+        image: owncloud/server:10.13
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - configMapRef:
+            name: owncloud-config
+        - secretRef:
+            name: owncloud-secret
+        env:
+        - name: OWNCLOUD_REDIS_PASSWORD
+          value: "redis123!"
+        - name: OWNCLOUD_TRUSTED_DOMAINS
+          value: "localhost,192.168.100.30,192.168.100.30:30090,192.168.100.20:30090,192.168.100.31:30090"
+          
+        - name: OWNCLOUD_OVERWRITEHOST
+          value: "192.168.100.30:30090"
+        - name: OWNCLOUD_OVERWRITE_WEBROOT
+          value: ""
+        - name: OWNCLOUD_OVERWRITE_PROTOCOL
+          value: "http"
+        ports:
+        - containerPort: 8080
+          name: http
+        volumeMounts:
+        - name: owncloud-data
+          mountPath: /mnt/data
+        securityContext:
+          runAsUser: 0     # root로 실행 (Apache 설정 파일 쓰기 권한 필요)
+          fsGroup: 33      # 파일 시스템은 www-data 그룹으로 설정
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "500m"
+          limits:
+            memory: "1Gi"
+            cpu: "1000m"
+        readinessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 5
+        livenessProbe:
+          tcpSocket:
+            port: 8080
+          initialDelaySeconds: 120
+          periodSeconds: 10
+      volumes:
+      - name: owncloud-data
+        persistentVolumeClaim:
+          claimName: owncloud-shared-pvc

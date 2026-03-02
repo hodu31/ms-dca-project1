@@ -1,0 +1,220 @@
+---
+- name: Kubernetes 클러스터 구축 (k8s 1.27.2 with Flannel)
+  hosts: all
+  become: true
+  vars:
+    k8s_version: "1.27.2"
+    pod_network_cidr: "10.244.0.0/16"
+    master_ip: "192.168.100.20"
+
+  tasks:
+    # 기존 환경 정리
+    - name: 기존 kubernetes 환경 초기화
+      shell: |
+        # 서비스 중지
+        systemctl stop kubelet containerd 2>/dev/null || true
+        
+        # kubeadm reset
+        command -v kubeadm &>/dev/null && kubeadm reset -f || true
+        
+        # 디렉토리 삭제
+        rm -rf /etc/{cni,kubernetes} /var/lib/{etcd,kubelet} \
+               /var/run/kubernetes /root/.kube
+        
+        # iptables 정리
+        iptables -F && iptables -t nat -F && iptables -X
+        iptables -t mangle -F
+        
+        # 네트워크 인터페이스 정리
+        ip link | grep -E "cni0|flannel|tunl0|cali|veth" | \
+          awk -F: '{print $2}' | xargs -r -n1 ip link delete 2>/dev/null || true
+        
+        # Calico 잔재 제거
+        rm -rf /etc/calico /var/lib/calico
+        
+        # crictl 이미지 정리
+        crictl rmi --all 2>/dev/null || true
+      ignore_errors: yes
+      changed_when: false
+
+    # Rocky Linux 기본 설정
+    - name: 시스템 기본 설정
+      block:
+        - name: 타임존 설정
+          timezone:
+            name: Asia/Seoul
+        
+        - name: 필수 패키지 설치
+          dnf:
+            name: 
+              - yum-utils
+              - iproute-tc
+              - net-tools
+              - vim
+              - wget
+              - curl
+            state: present
+        
+        - name: hosts 파일 설정
+          blockinfile:
+            path: /etc/hosts
+            block: |
+              192.168.100.20 k8s-master
+              192.168.100.30 k8s-worker1
+              192.168.100.31 k8s-worker2
+            marker: "# {mark} ANSIBLE MANAGED BLOCK - k8s hosts"
+
+    # 시스템 사전 설정
+    - name: Kubernetes 사전 요구사항
+      block:
+        - name: 방화벽 비활성화
+          systemd:
+            name: firewalld
+            state: stopped
+            enabled: false
+        
+        - name: Swap 비활성화
+          shell: |
+            swapoff -a
+            sed -i '/ swap / s/^/#/' /etc/fstab
+        
+        - name: SELinux permissive 모드
+          selinux:
+            state: permissive
+            policy: targeted
+        
+        - name: 커널 모듈 설정
+          copy:
+            dest: /etc/modules-load.d/k8s.conf
+            content: |
+              overlay
+              br_netfilter
+        
+        - name: 커널 모듈 로드
+          modprobe:
+            name: "{{ item }}"
+            state: present
+          loop: 
+            - overlay
+            - br_netfilter
+        
+        - name: 커널 파라미터 설정
+          copy:
+            dest: /etc/sysctl.d/k8s.conf
+            content: |
+              net.bridge.bridge-nf-call-iptables  = 1
+              net.bridge.bridge-nf-call-ip6tables = 1
+              net.ipv4.ip_forward                 = 1
+        
+        - name: sysctl 적용
+          command: sysctl --system
+          changed_when: false
+
+    # 컨테이너 런타임 설치
+    - name: Containerd 설치 및 설정
+      block:
+        - name: Docker 저장소 추가
+          yum_repository:
+            name: docker-ce
+            description: Docker CE Repository
+            baseurl: https://download.docker.com/linux/centos/8/$basearch/stable
+            gpgcheck: yes
+            gpgkey: https://download.docker.com/linux/centos/gpg
+        
+        - name: containerd 설치
+          dnf:
+            name: containerd.io
+            state: latest
+            update_cache: yes
+        
+        - name: crictl 설치
+          shell: |
+            VERSION="v1.27.0"
+            if ! command -v crictl &>/dev/null; then
+              wget https://github.com/kubernetes-sigs/cri-tools/releases/download/${VERSION}/crictl-${VERSION}-linux-amd64.tar.gz
+              tar zxvf crictl-${VERSION}-linux-amd64.tar.gz -C /usr/local/bin
+              rm -f crictl-${VERSION}-linux-amd64.tar.gz
+            fi
+          args:
+            creates: /usr/local/bin/crictl
+        
+        - name: crictl 설정
+          copy:
+            dest: /etc/crictl.yaml
+            content: |
+              runtime-endpoint: unix:///run/containerd/containerd.sock
+              image-endpoint: unix:///run/containerd/containerd.sock
+              timeout: 2
+              debug: false
+              pull-image-on-create: false
+        
+        - name: containerd 설정 디렉토리 생성
+          file:
+            path: /etc/containerd
+            state: directory
+        
+        - name: containerd 설정
+          shell: |
+            containerd config default > /etc/containerd/config.toml
+            sed -i 's/SystemdCgroup = false/SystemdCgroup = true/' /etc/containerd/config.toml
+        
+        - name: containerd 재시작
+          systemd:
+            name: containerd
+            state: restarted
+            enabled: true
+            daemon_reload: true
+
+    # Kubernetes 설치
+    - name: Kubernetes 패키지 설치
+      block:
+        - name: Kubernetes 저장소 추가
+          yum_repository:
+            name: kubernetes
+            description: Kubernetes Repository
+            baseurl: https://pkgs.k8s.io/core:/stable:/v1.27/rpm/
+            gpgcheck: true
+            gpgkey: https://pkgs.k8s.io/core:/stable:/v1.27/rpm/repodata/repomd.xml.key
+            exclude: kubelet kubeadm kubectl cri-tools kubernetes-cni
+        
+        - name: Kubernetes 패키지 설치
+          dnf:
+            name:
+              - kubelet-{{ k8s_version }}
+              - kubeadm-{{ k8s_version }}
+              - kubectl-{{ k8s_version }}
+            state: present
+            disable_excludes: kubernetes
+        
+        - name: kubelet 설정 파일 생성
+          copy:
+            dest: /etc/sysconfig/kubelet
+            content: |
+              KUBELET_EXTRA_ARGS="--cgroup-driver=systemd"
+        
+        - name: kubelet 활성화
+          systemd:
+            name: kubelet
+            enabled: true
+            state: started
+
+    # 최종 확인
+    - name: 노드 준비 완료 확인
+      debug:
+        msg: 
+          - "==================================="
+          - "노드 준비 완료: {{ inventory_hostname }}"
+          - "==================================="
+          - "Kubernetes 버전: {{ k8s_version }}"
+          - "Container Runtime: containerd"
+          - "네트워크 플러그인: Flannel 예정"
+          - "Pod Network CIDR: {{ pod_network_cidr }}"
+          - ""
+          - "설치된 구성요소:"
+          - "- kubelet: 활성화"
+          - "- kubeadm: 설치됨"
+          - "- kubectl: 설치됨"
+          - "- containerd: 실행 중"
+          - ""
+          - "다음 단계: k8s-cluster-init.yml 실행"
+          - "==================================="
